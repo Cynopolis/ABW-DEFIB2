@@ -12,14 +12,16 @@
 * D25 - Period Encoder Input
 * D26 - Waveform Select Encoder
 * D27 - Waveform Select Encoder
+* D28 - Single pulse flag (LOW enables single pulse mode)
+* D29 - Single pulse trigger. (LOW will cause the arduino to send 1 waveform pulse)
+* D30 - Slow pulse flag (LOW enables a pulse rate of 3 pulses/second)
 */
 
 
 #include <Arduino.h>
 #include <Encoder.h>
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-//#include <LiquidTWI2.h>
+
 
 //uncomment to enable serial output for debugging
 #define enable_serial_debug
@@ -27,8 +29,11 @@
 #define waveform_pin DAC0
 #define amplitude_pin DAC1
 #define sync_pin 2
+#define single_pulse_flag_pin 28
+#define single_pulse_trig_pin 29
+#define slow_pulse_flag_pin 30
 
-// Number of waveforms available
+// Number of waveforms available. Change this if you add or remove waveforms
 #define waveform_num 4
 // Array of waveform arrays. Currently holds four waveforms with 600 samples each.
 int waveforms[waveform_num][600] = {
@@ -54,35 +59,64 @@ long new_waveform = 2;
 long old_waveform = 2;
 int waveform_select = 2;
 
-//Setup LCD Display
-LiquidCrystal_I2C lcd(0x27,16,2);
 
-// Timer to regulate the step width
-int timer = 0;
+
 unsigned int millis_period = 13;
+//Used to debounce the trigger input
+boolean has_single_pulsed = false;
+unsigned long deb_timer = 0;
+
+
+/* Cycle through the waveform samples over a given period of time
+* The time scalar argument changes how many samples it will skip. 
+* A value of 1 will not skip any samples, a value of 2 will use every 2nd sammple, and a value of 5 will use every 5th sample. 
+* This allows you to sacrifice resolution for speed. A value of 2 will take half the time to create a waveform pulse
+*/
+void generate_waveform(int time_scalar){
+  // The period of time each sample in the array should take in microseconds
+  // The 1000 converts from milliseconds to microseconds, and the 600 deivides by the number of samples in the array
+  // The -3 offset compensates for a 3 millisecond overhead created by the time it takes to do all of the calculations
+  unsigned int sample_period = (new_period-3)*1000/600;
+
+  // Timer to regulate the step width
+  int timer = 0;
+
+  //Loop through all of the samples in the array and output them to Dac 0
+  for(int i = 0; i < 600; i=i+time_scalar){
+    while(micros()-timer < sample_period);
+    analogWrite(waveform_pin, waveforms[new_waveform][i]);
+    timer = micros();
+  }
+}
 
 void setup() {
   //The sync pin can be run into an oscilliscope's trig channel to easiy find the waveform
   pinMode(sync_pin, OUTPUT);
+  pinMode(single_pulse_flag_pin, INPUT_PULLUP);
+  pinMode(single_pulse_trig_pin, INPUT_PULLUP);
+  pinMode(slow_pulse_flag_pin, INPUT_PULLUP);
+
   //Change the resolution of the analog ourput to its maximum (12 bit res)
   analogWriteResolution(12);
-  //If serial debugging is enabled set up serial
-  #ifdef enable_serial_debug
-    Serial.begin(115200);
-  #endif
+  
   // Initialize timers and encoders
-  timer = micros();
   amp_encoder.write(new_amp*4);
   period_encoder.write(new_period*4);
   waveform_encoder.write(new_waveform*4);
 
-  lcd.init();                      // initialize the lcd 
-  lcd.backlight();
+  // Only executes this block of code if serial debug is enabled
+  #ifdef enable_serial_debug
+    Serial.begin(115200);
+    Serial.print("Ampltidue: ");
+    Serial.println(map(new_amp, 0, 127, 0, 4095));
+    Serial.print("Period: ");
+    Serial.println(new_period);
+    Serial.print("Waveform #: ");
+    Serial.println(new_waveform);
+  #endif
 }
 
 void loop() {
-  lcd.setCursor(0,0);
-  lcd.print("Hello");
   // Read in encoder values
   new_amp = amp_encoder.read()/4;
   new_period = period_encoder.read()/4;
@@ -102,6 +136,10 @@ void loop() {
       amp_encoder.write(new_amp*4);
     }
     old_amp = new_amp;
+    #ifdef enable_serial_debug
+      Serial.print("Ampltidue: ");
+      Serial.println(map(new_amp, 0, 127, 0, 4095));
+    #endif
   }
 
   //Handles period encoder
@@ -117,6 +155,10 @@ void loop() {
       period_encoder.write(new_period*4);
     }
     old_period = new_period;
+    #ifdef enable_serial_debug
+      Serial.print("Period: ");
+      Serial.println(new_period);
+    #endif
   }
 
   //Handles waveform encoder
@@ -131,6 +173,10 @@ void loop() {
       waveform_encoder.write(new_waveform*4);
     }
     old_waveform = new_waveform;
+    #ifdef enable_serial_debug
+      Serial.print("Waveform #: ");
+      Serial.println(new_waveform);
+    #endif
   }
 
   // Creates a synch signal so an oscilliscope can more easily read irregular pulses
@@ -138,26 +184,26 @@ void loop() {
 
   // Output a signal to control the amplitude
   analogWrite(amplitude_pin, map(new_amp, 0, 127, 0, 4095));
+  
+  // Check to see if the single pulse pin has been pulled LOW
+  if(!digitalRead(single_pulse_flag_pin)){
+    if(deb_timer-millis() > 100){
+      if(!digitalRead(single_pulse_trig_pin) && has_single_pulsed == false){
+        generate_waveform(1);
+        has_single_pulsed = true;
+        deb_timer = millis();
+      }
+      else if(digitalRead(single_pulse_trig_pin)) {
+        has_single_pulsed = false;
+        deb_timer = millis();
+      }
+    }
 
-  // The period of time each sample in the array should take in microseconds
-  // The 1000 converts from milliseconds to microseconds, and the 600 deivides by the number of samples in the array
-  // The -3 offset compensates for a 3 millisecond overhead created by the time it takes to do all of the calculations
-  unsigned int sample_period = (new_period-3)*1000/600;
-
-  #ifdef enable_serial_debug
-    Serial.print("Ampltidue: ");
-    Serial.println(map(new_amp, 0, 127, 0, 4095));
-    Serial.print("Period: ");
-    Serial.println(new_period);
-    Serial.print("Waveform #: ");
-    Serial.println(new_waveform);
-    delay(500);
-  #endif
-
-  // Cycle through the waveform samples over a given period of time
-  for(int i = 0; i < 600; i++){
-    while(micros()-timer < sample_period);
-    analogWrite(waveform_pin, waveforms[new_waveform][i]);
-    timer = micros();
   }
+  else{
+    generate_waveform(1);
+    // Slows down the output pulse if the slow pulse pin is pulled LOW
+    if(!digitalRead(slow_pulse_flag_pin)) delay(500);
+  }
+
 }
