@@ -25,6 +25,10 @@
 
 //uncomment to enable serial output for debugging
 #define enable_serial_debug
+/* Changes the number of array points to sample. If 1, it will sample every point. 
+*  If 2, it will sample every other point,. If four it will sample every 4 points, etc.
+*/
+#define sample_resolution 4
 
 #define waveform_pin DAC0
 #define amplitude_pin DAC1
@@ -47,24 +51,25 @@ int waveforms[waveform_num][600] = {
   }
 };
 
+// A dynamic waveform that can change its values based on some scalar. This gets initialized at the start of the program
+int dynamic_waveform[600];
+
 //Setup encoders and their corresponding variables
 Encoder amp_encoder(22, 23);
-long new_amp = 64;
-long old_amp = 64;
+long new_amp = 10;
+long old_amp = 10;
 Encoder period_encoder(24, 25);
-long new_period = 10;
-long old_period = 10;
+long new_period = 4;
+long old_period = 4;
 Encoder waveform_encoder(26, 27);
 long new_waveform = 2;
 long old_waveform = 2;
-int waveform_select = 2;
 
 
-
-unsigned int millis_period = 13;
 //Used to debounce the trigger input
 boolean has_single_pulsed = false;
 unsigned long deb_timer = 0;
+
 
 
 /* Cycle through the waveform samples over a given period of time
@@ -84,10 +89,25 @@ void generate_waveform(int time_scalar){
   //Loop through all of the samples in the array and output them to Dac 0
   for(int i = 0; i < 600; i=i+time_scalar){
     while(micros()-timer < sample_period);
-    analogWrite(waveform_pin, waveforms[new_waveform][i]);
+    analogWrite(waveform_pin, dynamic_waveform[i]);
     timer = micros();
   }
 }
+
+
+
+// Recalculates the waveform given a new amplitude percentage
+void recalc_waveform(float percent_amplitude){
+  float amp_scalar = float(percent_amplitude)/10; // Create ampltidue scalar between 0.1 and 1
+  float offset = 2048 - 2048*amp_scalar; //Generate offset to keep the waveform DC offset the same
+
+  // Scale the array and give it its new offset
+  for(int i = 0; i < 600; i++){
+    dynamic_waveform[i] = (int)(waveforms[new_waveform][i]*amp_scalar + offset);
+  }
+}
+
+
 
 void setup() {
   //The sync pin can be run into an oscilliscope's trig channel to easiy find the waveform
@@ -108,13 +128,18 @@ void setup() {
   #ifdef enable_serial_debug
     Serial.begin(115200);
     Serial.print("Ampltidue: ");
-    Serial.println(map(new_amp, 0, 127, 0, 4095));
+    Serial.println(new_amp*10);
     Serial.print("Period: ");
     Serial.println(new_period);
     Serial.print("Waveform #: ");
     Serial.println(new_waveform);
   #endif
+
+  // Loads currently selected waveform into the dynamic waveform
+  for(int i = 0; i < 600; i++) dynamic_waveform[i] = waveforms[new_waveform][i];
 }
+
+
 
 void loop() {
   // Read in encoder values
@@ -126,20 +151,22 @@ void loop() {
   //Handles ampltidue encoder
   if(new_amp != old_amp){
     // Make sure the value is within a valid range
-    if(new_amp > 127){
+    if(new_amp > 10){
       //128 ampltidue steps should be enough granularity
-      new_amp = 127;
+      new_amp = 10;
       amp_encoder.write(new_amp*4);
     }
-    if(new_amp < 0){
-      new_amp = 0;
+    if(new_amp < 1){
+      new_amp = 1;
       amp_encoder.write(new_amp*4);
     }
     old_amp = new_amp;
+    //If serial is enabled, output some serial data
     #ifdef enable_serial_debug
-      Serial.print("Ampltidue: ");
-      Serial.println(map(new_amp, 0, 127, 0, 4095));
+      Serial.print("Ampltidue (%): ");
+      Serial.println(new_amp*10);
     #endif
+    recalc_waveform(new_amp);
   }
 
   //Handles period encoder
@@ -150,14 +177,15 @@ void loop() {
       period_encoder.write(new_period*4);
     }
     //Anything less than three will cause errors
-    if(new_period < 3){
-      new_period = 3;
+    if(new_period < 4){
+      new_period = 4;
       period_encoder.write(new_period*4);
     }
     old_period = new_period;
+    //If serial is enabled, output some serial data
     #ifdef enable_serial_debug
-      Serial.print("Period: ");
-      Serial.println(new_period);
+      Serial.print("Period (ms): ");
+      Serial.println((float)(new_period)/sample_resolution);
     #endif
   }
 
@@ -173,17 +201,16 @@ void loop() {
       waveform_encoder.write(new_waveform*4);
     }
     old_waveform = new_waveform;
+    // If serial is enabled, output some serial data
     #ifdef enable_serial_debug
       Serial.print("Waveform #: ");
       Serial.println(new_waveform);
     #endif
+    recalc_waveform(1);
   }
 
   // Creates a synch signal so an oscilliscope can more easily read irregular pulses
   digitalWrite(sync_pin, !digitalRead(sync_pin));
-
-  // Output a signal to control the amplitude
-  analogWrite(amplitude_pin, map(new_amp, 0, 127, 0, 4095));
   
   // Check to see if the single pulse pin has been pulled LOW
   if(!digitalRead(single_pulse_flag_pin)){
