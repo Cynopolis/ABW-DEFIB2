@@ -21,10 +21,14 @@
 #include <Arduino.h>
 #include <Encoder.h>
 #include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 
 
 //uncomment to enable serial output for debugging
 #define enable_serial_debug
+//uncomment to enable lcd output
+#define enable_lcd
+
 /* Changes the number of array points to sample. If 1, it will sample every point. 
 *  If 2, it will sample every other point,. If four it will sample every 4 points, etc.
 */
@@ -46,6 +50,9 @@ int default_waveform[600] = {2048,4093,4091,4088,4085,4083,4080,4077,4075,4072,4
 // A dynamic waveform that can change its values based on some scalar. This gets initialized at the start of the program
 int dynamic_waveform[600];
 
+//Waveform values
+float waveform_vals[] = {1,2,3,4,5,6,7,8,9,10};
+
 //Setup encoders and their corresponding variables
 Encoder amp_encoder(22, 23);
 long new_amp = 10;
@@ -59,7 +66,8 @@ long old_period = 4;
 boolean has_single_pulsed = false;
 unsigned long deb_timer = 0;
 
-
+//Create LCD object
+LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 16, 2);
 
 /* Cycle through the waveform samples over a given period of time
 * The time scalar argument changes how many samples it will skip. 
@@ -118,13 +126,25 @@ void setup() {
   #ifdef enable_serial_debug
     Serial.begin(115200);
     Serial.print("Ampltidue: ");
-    Serial.println(new_amp*10);
+    Serial.println(waveform_vals[new_amp-1]);
     Serial.print("Period: ");
-    Serial.println(new_period);
+    Serial.println(new_period/sample_resolution);
   #endif
 
   // Loads currently selected waveform into the dynamic waveform
   for(int i = 0; i < 600; i++) dynamic_waveform[i] = default_waveform[i];
+
+  //Init LCD
+  #ifdef enable_lcd
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("Period:");
+    lcd.print((float)(new_period)/sample_resolution);
+    lcd.setCursor(0, 1);
+    lcd.print("Amplitude:");
+    lcd.print(waveform_vals[new_amp-1]);
+  #endif
 }
 
 
@@ -150,9 +170,16 @@ void loop() {
     old_amp = new_amp;
     //If serial is enabled, output some serial data
     #ifdef enable_serial_debug
-      Serial.print("Ampltidue (%): ");
-      Serial.println(new_amp*10);
+      Serial.print("Ampltidue: ");
+      Serial.println(waveform_vals[new_amp-1]);
     #endif
+
+    // If LCD output is enabled output to LCD
+    #ifdef enable_lcd
+      lcd.setCursor(10,1);
+      lcd.print(waveform_vals[new_amp-1]);
+    #endif
+
     recalc_waveform(new_amp);
   }
 
@@ -173,6 +200,12 @@ void loop() {
     #ifdef enable_serial_debug
       Serial.print("Period (ms): ");
       Serial.println((float)(new_period)/sample_resolution);
+    #endif
+
+    // If LCD output is enabled output to LCD
+    #ifdef enable_lcd
+      lcd.setCursor(7,0);
+      lcd.print((float)(new_period)/sample_resolution);
     #endif
   }
 
