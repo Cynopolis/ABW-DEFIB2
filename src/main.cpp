@@ -10,17 +10,30 @@
 * D23 - Amplitude Encoder Input
 * D24 - Period Encoder Input
 * D25 - Period Encoder Input
-* D26 - Waveform Select Encoder
-* D27 - Waveform Select Encoder
-* D28 - Single pulse flag (LOW enables single pulse mode)
+* D26 - Nothing
+* D27 - Single pulse armed pin. toggles the armed state when it recieves a falling signal
+* D28 - Single pulse enable pin (A FALLING signal toggles single pulse mode)
 * D29 - Single pulse trigger. (LOW will cause the arduino to send 1 waveform pulse)
 * D30 - Slow pulse flag (LOW enables a pulse rate of 3 pulses/second)
+* D31 - Armed state indicator light output
+* D32 - Fired state indicator light output
 */
 
 
+// Define pinouts
+#define waveform_pin DAC0
+#define amplitude_pin DAC1
+#define sync_pin 2
+#define single_pulse_arm_pin 27
+#define single_pulse_enable_pin 28
+#define single_pulse_trig_pin 29
+#define slow_pulse_flag_pin 30
+#define armed_indicator_pin 31
+#define fired_indicator_pin 32
+
+//Include necessary libraries
 #include <Arduino.h>
 #include <Encoder.h>
-#include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
 
@@ -33,13 +46,6 @@
 *  If 2, it will sample every other point,. If four it will sample every 4 points, etc.
 */
 #define sample_resolution 4
-
-#define waveform_pin DAC0
-#define amplitude_pin DAC1
-#define sync_pin 2
-#define single_pulse_flag_pin 28
-#define single_pulse_trig_pin 29
-#define slow_pulse_flag_pin 30
 
 // Number of waveforms available. Change this if you add or remove waveforms
 #define waveform_num 4
@@ -62,9 +68,26 @@ long new_period = 4;
 long old_period = 4;
 
 
-//Used to debounce the trigger input
+//Setup values for arming and firing system
+volatile boolean is_enabled = false;
+volatile boolean is_armed = false;
 boolean has_single_pulsed = false;
-unsigned long deb_timer = 0;
+unsigned long debounce_timer = 0;
+
+// Toggles the armed state of single fire mode. (Only toggles is signle fire mdoe is already enabled.)
+void arm_single_fire(){
+  if(is_enabled){
+    is_armed = !is_armed;
+    // Toggle the armed indicator light
+    digitalWrite(armed_indicator_pin, !digitalRead(armed_indicator_pin));
+    digitalWrite(fired_indicator_pin, LOW);
+  }
+}
+
+// Toggles single fire mode
+void enable_single_fire(){
+  is_enabled = !is_enabled;
+}
 
 //Create LCD object
 LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 16, 2);
@@ -105,15 +128,24 @@ void recalc_waveform(float percent_amplitude){
 }
 
 
-
 void setup() {
   //Immediately set the analog output to the mid point
   analogWrite(waveform_pin, 2048);
   //The sync pin can be run into an oscilliscope's trig channel to easiy find the waveform
   pinMode(sync_pin, OUTPUT);
-  pinMode(single_pulse_flag_pin, INPUT_PULLUP);
+  // Setup the rest of the IO pins
+  pinMode(single_pulse_enable_pin, INPUT_PULLUP);
+  pinMode(single_pulse_arm_pin, INPUT_PULLUP);
   pinMode(single_pulse_trig_pin, INPUT_PULLUP);
   pinMode(slow_pulse_flag_pin, INPUT_PULLUP);
+  pinMode(armed_indicator_pin, OUTPUT);
+  pinMode(fired_indicator_pin, OUTPUT);
+
+  //Set up interrupts to simplify single fire mode:
+  // This will call the arm_single_fire() function whenever it detects a falling signal on this pin
+  attachInterrupt(digitalPinToInterrupt(single_pulse_arm_pin), arm_single_fire, FALLING);
+  // Will call the enable_single_fire function whenever it detects a falling signal on this pin
+  attachInterrupt(digitalPinToInterrupt(single_pulse_enable_pin), enable_single_fire, FALLING);
 
   //Change the resolution of the analog ourput to its maximum (12 bit res)
   analogWriteResolution(12);
@@ -213,20 +245,26 @@ void loop() {
   // Creates a synch signal so an oscilliscope can more easily read irregular pulses
   digitalWrite(sync_pin, !digitalRead(sync_pin));
   
+
   // Check to see if the single pulse pin has been pulled LOW
-  if(!digitalRead(single_pulse_flag_pin)){
-    if(deb_timer-millis() > 100){
+  if(is_enabled){
+    if(is_armed && debounce_timer-millis() > 100){
       if(!digitalRead(single_pulse_trig_pin) && has_single_pulsed == false){
         generate_waveform(sample_resolution);
         has_single_pulsed = true;
-        deb_timer = millis();
+        debounce_timer = millis();
+        digitalWrite(fired_indicator_pin, HIGH);
+        digitalWrite(armed_indicator_pin, LOW);
+        is_armed = false;
       }
       else if(digitalRead(single_pulse_trig_pin)) {
         has_single_pulsed = false;
-        deb_timer = millis();
+        debounce_timer = millis();
       }
     }
-
+    if(debounce_timer-millis()>250){
+      digitalWrite(fired_indicator_pin, LOW);
+    }
   }
   else{
     generate_waveform(sample_resolution);
