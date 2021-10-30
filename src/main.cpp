@@ -73,14 +73,16 @@ volatile boolean is_enabled = false;
 volatile boolean is_armed = false;
 boolean has_single_pulsed = false;
 unsigned long debounce_timer = 0;
+volatile unsigned long armed_debounce = 0;
 
 // Toggles the armed state of single fire mode. (Only toggles is signle fire mdoe is already enabled.)
 void arm_single_fire(){
-  if(is_enabled){
+  if(is_enabled && millis()-armed_debounce > 100){
     is_armed = !is_armed;
     // Toggle the armed indicator light
     digitalWrite(armed_indicator_pin, !digitalRead(armed_indicator_pin));
     digitalWrite(fired_indicator_pin, LOW);
+    armed_debounce = millis();
   }
 }
 
@@ -248,7 +250,7 @@ void loop() {
 
   // Check to see if the single pulse pin has been pulled LOW
   if(is_enabled){
-    if(is_armed && debounce_timer-millis() > 100){
+    if(is_armed && millis() - debounce_timer > 100){
       if(!digitalRead(single_pulse_trig_pin) && has_single_pulsed == false){
         generate_waveform(sample_resolution);
         has_single_pulsed = true;
@@ -262,7 +264,7 @@ void loop() {
         debounce_timer = millis();
       }
     }
-    if(debounce_timer-millis()>250){
+    if(millis()-debounce_timer>250){
       digitalWrite(fired_indicator_pin, LOW);
     }
   }
