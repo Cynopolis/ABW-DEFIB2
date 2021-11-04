@@ -150,6 +150,9 @@ void setup() {
   pinMode(armed_indicator_pin, OUTPUT);
   pinMode(fired_indicator_pin, OUTPUT);
 
+  // Set the indicator pins off (Inverted logic)
+  digitalWrite(armed_indicator_pin, HIGH);
+  digitalWrite(fired_indicator_pin, HIGH);
   //Set up interrupts to simplify single fire mode:
   // This will call the arm_single_fire() function whenever it detects a falling signal on this pin
   //attachInterrupt(digitalPinToInterrupt(single_pulse_arm_pin), arm_single_fire, FALLING);
@@ -299,7 +302,7 @@ void loop() {
         }
         else lcd.print("No ");
         //Output the armed state to the arm pin
-        digitalWrite(armed_indicator_pin, is_armed);
+        digitalWrite(armed_indicator_pin, !is_armed);
         //Set the timer so this if statement doesn't run again
         armed_debounce = millis()-301;
       }
@@ -313,7 +316,7 @@ void loop() {
       //Once the debounce timer reaches 250ms toggle the armed state.
       if(millis()-fire_debounce > 200 && millis()-fire_debounce < 300){
         
-        digitalWrite(fired_indicator_pin, HIGH);
+        digitalWrite(fired_indicator_pin, LOW);
         //Send out pulse
         generate_waveform(sample_resolution);
         // Toggle the armed state
@@ -322,7 +325,7 @@ void loop() {
         lcd.setCursor(7,1);
         lcd.print("No ");
         //Output the state to the indicator lights
-        digitalWrite(armed_indicator_pin, LOW);
+        digitalWrite(armed_indicator_pin, HIGH);
         //Set the timer so this if statement doesn't run again
         fire_debounce = millis()-301;
         armed_debounce = millis();
@@ -331,7 +334,7 @@ void loop() {
 
     // Turn off the fire indicator pin after a half of a second
     if(millis()-fire_debounce>300+500){
-        digitalWrite(fired_indicator_pin, LOW);
+        digitalWrite(fired_indicator_pin, HIGH);
     }
   }
 
