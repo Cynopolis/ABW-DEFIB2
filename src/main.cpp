@@ -162,7 +162,7 @@ void setup() {
   
   // Initialize timers and encoders
   amp_encoder.write(new_amp*4);
-  period_encoder.write(new_period*4);
+  period_encoder.write(new_period*4/sample_resolution);
 
   // Check single pulse status
   single_fire_is_enabled = !digitalRead(single_pulse_enable_pin);
@@ -200,6 +200,7 @@ void loop() {
   // Read in encoder values
   new_amp = amp_encoder.read()/4;
   new_period = period_encoder.read()/4;
+  new_period = new_period*sample_resolution;
 
   // Check to see if any of the encoder values have changed. If they have, update their values.
   //Handles ampltidue encoder
@@ -237,12 +238,12 @@ void loop() {
     // Make sure the value is within a valid range
     if(new_period > 20*sample_resolution){
       new_period = 20*sample_resolution;
-      period_encoder.write(new_period*4);
+      period_encoder.write(20*4);
     }
     //Anything less than three will cause errors
-    if(new_period < 4){
-      new_period = 4;
-      period_encoder.write(new_period*4);
+    if(new_period < sample_resolution){
+      new_period = sample_resolution;
+      period_encoder.write(sample_resolution);
     }
     old_period = new_period;
     //If serial is enabled, output some serial data
