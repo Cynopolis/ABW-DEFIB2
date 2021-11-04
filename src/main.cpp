@@ -162,7 +162,8 @@ void setup() {
   period_encoder.write(new_period*4);
 
   // Check single pulse status
-  is_armed = !digitalRead(single_pulse_enable_pin);
+  single_fire_is_enabled = !digitalRead(single_pulse_enable_pin);
+  single_fire_is_disabled = !single_fire_is_enabled;
 
   // Only executes this block of code if serial debug is enabled
   #ifdef enable_serial_debug
