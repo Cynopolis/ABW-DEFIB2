@@ -67,32 +67,16 @@ Encoder period_encoder(24, 25);
 long new_period = 4;
 long old_period = 4;
 
-
-//Setup values for arming and firing system
-volatile boolean is_enabled = false;
-volatile boolean is_armed = false;
-boolean has_single_pulsed = false;
-unsigned long debounce_timer = 0;
-volatile unsigned long armed_debounce = 0;
-
-// Toggles the armed state of single fire mode. (Only toggles is signle fire mdoe is already enabled.)
-void arm_single_fire(){
-  if(is_enabled && millis()-armed_debounce > 100){
-    is_armed = !is_armed;
-    // Toggle the armed indicator light
-    digitalWrite(armed_indicator_pin, !digitalRead(armed_indicator_pin));
-    digitalWrite(fired_indicator_pin, LOW);
-    armed_debounce = millis();
-  }
-}
-
-// Toggles single fire mode
-void enable_single_fire(){
-  is_enabled = !is_enabled;
-}
-
 //Create LCD object
 LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 16, 2);
+
+//Setup values for arming and firing system
+boolean single_fire_is_enabled = true; // is true when single fire mode is enabled
+boolean single_fire_is_disabled = false; // is false when single fire mode is disabled. Used to keep track of state changes
+boolean is_armed = false; // is true when single fire mode is armed
+unsigned long fire_debounce = 0; // A timer to debounce the firing pin
+unsigned long armed_debounce = 0; //A time to deboucne the arming pin
+
 
 /* Cycle through the waveform samples over a given period of time
 * The time scalar argument changes how many samples it will skip. 
@@ -129,6 +113,29 @@ void recalc_waveform(float percent_amplitude){
   }
 }
 
+//Changes the LCD screen to the continuous firing status screen
+void continuous_output_lcd(){
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Period:");
+  lcd.print((float)(new_period)/sample_resolution);
+  lcd.setCursor(0, 1);
+  lcd.print("Amplitude:");
+  lcd.print(waveform_vals[new_amp-1]);
+}
+
+//Change the LCD screen to the single fire status screen
+void single_fire_lcd(){
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Single Fire Mode");
+  lcd.setCursor(0,1);
+  lcd.print("Armed: ");
+  if(is_armed){
+    lcd.print("Yes");
+  }
+  else lcd.print("No");
+}
 
 void setup() {
   //Immediately set the analog output to the mid point
@@ -145,9 +152,7 @@ void setup() {
 
   //Set up interrupts to simplify single fire mode:
   // This will call the arm_single_fire() function whenever it detects a falling signal on this pin
-  attachInterrupt(digitalPinToInterrupt(single_pulse_arm_pin), arm_single_fire, FALLING);
-  // Will call the enable_single_fire function whenever it detects a falling signal on this pin
-  attachInterrupt(digitalPinToInterrupt(single_pulse_enable_pin), enable_single_fire, FALLING);
+  //attachInterrupt(digitalPinToInterrupt(single_pulse_arm_pin), arm_single_fire, FALLING);
 
   //Change the resolution of the analog ourput to its maximum (12 bit res)
   analogWriteResolution(12);
@@ -155,6 +160,9 @@ void setup() {
   // Initialize timers and encoders
   amp_encoder.write(new_amp*4);
   period_encoder.write(new_period*4);
+
+  // Check single pulse status
+  is_armed = !digitalRead(single_pulse_enable_pin);
 
   // Only executes this block of code if serial debug is enabled
   #ifdef enable_serial_debug
@@ -172,12 +180,13 @@ void setup() {
   #ifdef enable_lcd
     lcd.init();
     lcd.backlight();
-    lcd.setCursor(0, 0);
-    lcd.print("Period:");
-    lcd.print((float)(new_period)/sample_resolution);
-    lcd.setCursor(0, 1);
-    lcd.print("Amplitude:");
-    lcd.print(waveform_vals[new_amp-1]);
+    lcd.setCursor(0,0);
+    if(single_fire_is_enabled){
+      single_fire_lcd();
+    }
+    else{
+      continuous_output_lcd();
+    }
   #endif
 }
 
@@ -210,8 +219,10 @@ void loop() {
 
     // If LCD output is enabled output to LCD
     #ifdef enable_lcd
-      lcd.setCursor(10,1);
-      lcd.print(waveform_vals[new_amp-1]);
+      if(single_fire_is_enabled == false){
+        lcd.setCursor(10,1);
+        lcd.print(waveform_vals[new_amp-1]);
+      }
     #endif
 
     recalc_waveform(new_amp);
@@ -238,36 +249,91 @@ void loop() {
 
     // If LCD output is enabled output to LCD
     #ifdef enable_lcd
-      lcd.setCursor(7,0);
-      lcd.print((float)(new_period)/sample_resolution);
+      if(single_fire_is_enabled == false){
+        lcd.setCursor(7,0);
+        lcd.print((float)(new_period)/sample_resolution);
+      }
     #endif
   }
 
 
   // Creates a synch signal so an oscilliscope can more easily read irregular pulses
   digitalWrite(sync_pin, !digitalRead(sync_pin));
-  
+
+  //Reads the state of the single pulse enable pin
+  single_fire_is_enabled = !digitalRead(single_pulse_enable_pin);
+
+
+
+  //Check to see if the single fire state has changed
+  #ifdef enable_lcd
+    if(single_fire_is_enabled == single_fire_is_disabled){
+      if(single_fire_is_enabled){
+        single_fire_lcd();
+      }
+      else{
+        continuous_output_lcd();
+      }
+      
+    }
+  #endif
+  single_fire_is_disabled = !single_fire_is_enabled;
 
   // Check to see if the single pulse pin has been pulled LOW
-  if(is_enabled){
-    if(is_armed && millis() - debounce_timer > 100){
-      if(!digitalRead(single_pulse_trig_pin) && has_single_pulsed == false){
-        generate_waveform(sample_resolution);
-        has_single_pulsed = true;
-        debounce_timer = millis();
-        digitalWrite(fired_indicator_pin, HIGH);
-        digitalWrite(armed_indicator_pin, LOW);
-        is_armed = false;
-      }
-      else if(digitalRead(single_pulse_trig_pin)) {
-        has_single_pulsed = false;
-        debounce_timer = millis();
+  if(single_fire_is_enabled){
+
+    //Heavy-duty debounce routine for arming pin
+    if(!digitalRead(single_pulse_arm_pin)){
+      // Reset the debounce timer
+      if(millis()-armed_debounce > 3000) armed_debounce = millis();
+
+      //Once the debounce timer reaches 250ms toggle the armed state.
+      if(millis()-armed_debounce > 200 && millis()-armed_debounce < 300){
+        // Toggle the armed state
+        is_armed = !is_armed;
+        // Output the armed state to the lcd
+        lcd.setCursor(7,1);
+        if(is_armed){
+          lcd.print("Yes");
+        }
+        else lcd.print("No ");
+        //Output the armed state to the arm pin
+        digitalWrite(armed_indicator_pin, is_armed);
+        //Set the timer so this if statement doesn't run again
+        armed_debounce = millis()-301;
       }
     }
-    if(millis()-debounce_timer>250){
-      digitalWrite(fired_indicator_pin, LOW);
+
+    // Heavy duty debounce routine for firing pin
+    if(!digitalRead(single_pulse_trig_pin) && is_armed){
+      // Reset the debounce timer
+      if(millis()-fire_debounce > 2500) fire_debounce = millis();
+
+      //Once the debounce timer reaches 250ms toggle the armed state.
+      if(millis()-fire_debounce > 200 && millis()-fire_debounce < 300){
+        
+        digitalWrite(fired_indicator_pin, HIGH);
+        //Send out pulse
+        generate_waveform(sample_resolution);
+        // Toggle the armed state
+        is_armed = false;
+        // Output the armed state to the lcd
+        lcd.setCursor(7,1);
+        lcd.print("No ");
+        //Output the state to the indicator lights
+        digitalWrite(armed_indicator_pin, LOW);
+        //Set the timer so this if statement doesn't run again
+        fire_debounce = millis()-301;
+        armed_debounce = millis();
+      }
+    }
+
+    // Turn off the fire indicator pin after a half of a second
+    if(millis()-fire_debounce>300+500){
+        digitalWrite(fired_indicator_pin, LOW);
     }
   }
+
   else{
     generate_waveform(sample_resolution);
     // Slows down the output pulse if the slow pulse pin is pulled LOW
