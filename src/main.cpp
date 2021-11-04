@@ -64,8 +64,8 @@ Encoder amp_encoder(22, 23);
 long new_amp = 10;
 long old_amp = 10;
 Encoder period_encoder(24, 25);
-long new_period = 4;
-long old_period = 4;
+long new_period = 10*sample_resolution;
+long old_period = 10*sample_resolution;
 
 //Create LCD object
 LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 16, 2);
@@ -235,8 +235,8 @@ void loop() {
   //Handles period encoder
   if(new_period != old_period){
     // Make sure the value is within a valid range
-    if(new_period > 100){
-      new_period = 100;
+    if(new_period > 20*sample_resolution){
+      new_period = 20*sample_resolution;
       period_encoder.write(new_period*4);
     }
     //Anything less than three will cause errors
