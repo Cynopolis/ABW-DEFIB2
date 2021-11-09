@@ -316,6 +316,10 @@ void loop() {
         lcd.setCursor(7,1);
         if(is_armed){
           lcd.print("Yes");
+          // send a bunch of pulses to demagnetize the HV transformer before arming
+          for(int i = 0; i < 10; i++){
+            generate_waveform(sample_resolution);
+          }
         }
         else lcd.print("No ");
         //Output the armed state to the arm pin and isolate pin
