@@ -39,7 +39,7 @@
 
 
 //uncomment to enable serial output for debugging
-#define enable_serial_debug
+//#define enable_serial_debug
 //uncomment to enable lcd output
 #define enable_lcd
 
@@ -204,9 +204,15 @@ void loop() {
   // Check to see if any of the encoder values have changed. If they have, update their values.
   //Handles ampltidue encoder
   if(new_amp != old_amp){
+
+    // This if statement stops the period from being changes if single fire mdoe is enabled
+    if(single_fire_is_enabled == true){
+      new_amp = old_amp;
+      amp_encoder.write(new_amp*4);
+    }
     // Make sure the value is within a valid range
     if(new_amp > 10){
-      //128 ampltidue steps should be enough granularity
+      //10 ampltidue steps should be enough granularity
       new_amp = 10;
       amp_encoder.write(new_amp*4);
     }
@@ -234,17 +240,25 @@ void loop() {
 
   //Handles period encoder
   if(new_period != old_period){
-    // Make sure the value is within a valid range
-    if(new_period > 20*sample_resolution){
-      new_period = 20*sample_resolution;
-      period_encoder.write(20*4);
+    
+    // This if statement stops the period from being changes if single fire mdoe is enabled
+    if(single_fire_is_enabled == true){
+      new_period = old_period;
+      period_encoder.write(new_period);
     }
-    //Anything less than three will cause errors
-    if(new_period < sample_resolution){
-      new_period = sample_resolution;
-      period_encoder.write(sample_resolution);
+    else{
+      // Make sure the value is within a valid range
+      if(new_period > 20*sample_resolution){
+        new_period = 20*sample_resolution;
+        period_encoder.write(20*4);
+      }
+      //Anything less than three will cause errors
+      if(new_period < sample_resolution){
+        new_period = sample_resolution;
+        period_encoder.write(sample_resolution);
+      }
+      old_period = new_period;
     }
-    old_period = new_period;
     //If serial is enabled, output some serial data
     #ifdef enable_serial_debug
       Serial.print("Period (ms): ");
