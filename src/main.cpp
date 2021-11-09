@@ -17,6 +17,7 @@
 * D30 - Slow pulse flag (LOW enables a pulse rate of 3 pulses/second)
 * D31 - Armed state indicator light output
 * D32 - Fired state indicator light output
+* D33 - Operates a relay which isolates the high voltage side of electronics from the electrodes
 */
 
 
@@ -30,6 +31,7 @@
 #define slow_pulse_flag_pin 30
 #define armed_indicator_pin 31
 #define fired_indicator_pin 32
+#define isolate_pin 33
 
 //Include necessary libraries
 #include <Arduino.h>
@@ -138,6 +140,8 @@ void single_fire_lcd(){
 }
 
 void setup() {
+  //Change the resolution of the analog ourput to its maximum (12 bit res)
+  analogWriteResolution(12);
   //Immediately set the analog output to the mid point
   analogWrite(waveform_pin, 2048);
   //The sync pin can be run into an oscilliscope's trig channel to easiy find the waveform
@@ -149,16 +153,13 @@ void setup() {
   pinMode(slow_pulse_flag_pin, INPUT_PULLUP);
   pinMode(armed_indicator_pin, OUTPUT);
   pinMode(fired_indicator_pin, OUTPUT);
+  pinMode(isolate_pin, OUTPUT);
 
   // Set the indicator pins off (Inverted logic)
   digitalWrite(armed_indicator_pin, HIGH);
   digitalWrite(fired_indicator_pin, HIGH);
-  //Set up interrupts to simplify single fire mode:
-  // This will call the arm_single_fire() function whenever it detects a falling signal on this pin
-  //attachInterrupt(digitalPinToInterrupt(single_pulse_arm_pin), arm_single_fire, FALLING);
-
-  //Change the resolution of the analog ourput to its maximum (12 bit res)
-  analogWriteResolution(12);
+  // Disconnect the electrodes
+  digitalWrite(isolate_pin, HIGH);
   
   // Initialize timers and encoders
   amp_encoder.write(new_amp*4);
@@ -278,6 +279,9 @@ void loop() {
       }
       else{
         continuous_output_lcd();
+        is_armed = false;
+        digitalWrite(armed_indicator_pin, HIGH);
+        digitalWrite(isolate_pin, HIGH);
       }
       
     }
@@ -302,8 +306,9 @@ void loop() {
           lcd.print("Yes");
         }
         else lcd.print("No ");
-        //Output the armed state to the arm pin
+        //Output the armed state to the arm pin and isolate pin
         digitalWrite(armed_indicator_pin, !is_armed);
+        digitalWrite(isolate_pin, !is_armed);
         //Set the timer so this if statement doesn't run again
         armed_debounce = millis()-301;
       }
@@ -325,8 +330,9 @@ void loop() {
         // Output the armed state to the lcd
         lcd.setCursor(7,1);
         lcd.print("No ");
-        //Output the state to the indicator lights
+        //Output the state to the indicator lights and turn off the isolate relay
         digitalWrite(armed_indicator_pin, HIGH);
+        digitalWrite(isolate_pin, HIGH);
         //Set the timer so this if statement doesn't run again
         fire_debounce = millis()-301;
         armed_debounce = millis();
