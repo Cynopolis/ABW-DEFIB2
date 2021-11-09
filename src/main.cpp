@@ -14,7 +14,7 @@
 * D27 - Single pulse armed pin. toggles the armed state when it recieves a falling signal
 * D28 - Single pulse enable pin (A FALLING signal toggles single pulse mode)
 * D29 - Single pulse trigger. (LOW will cause the arduino to send 1 waveform pulse)
-* D30 - Slow pulse flag (LOW enables a pulse rate of 3 pulses/second)
+* 
 * D31 - Armed state indicator light output
 * D32 - Fired state indicator light output
 * D33 - Operates a relay which isolates the high voltage side of electronics from the electrodes
@@ -28,7 +28,6 @@
 #define single_pulse_arm_pin 27
 #define single_pulse_enable_pin 28
 #define single_pulse_trig_pin 29
-#define slow_pulse_flag_pin 30
 #define armed_indicator_pin 31
 #define fired_indicator_pin 32
 #define isolate_pin 33
@@ -150,7 +149,6 @@ void setup() {
   pinMode(single_pulse_enable_pin, INPUT_PULLUP);
   pinMode(single_pulse_arm_pin, INPUT_PULLUP);
   pinMode(single_pulse_trig_pin, INPUT_PULLUP);
-  pinMode(slow_pulse_flag_pin, INPUT_PULLUP);
   pinMode(armed_indicator_pin, OUTPUT);
   pinMode(fired_indicator_pin, OUTPUT);
   pinMode(isolate_pin, OUTPUT);
@@ -343,12 +341,6 @@ void loop() {
     if(millis()-fire_debounce>300+500){
         digitalWrite(fired_indicator_pin, HIGH);
     }
-  }
-
-  else{
-    generate_waveform(sample_resolution);
-    // Slows down the output pulse if the slow pulse pin is pulled LOW
-    if(!digitalRead(slow_pulse_flag_pin)) delay(500);
   }
 
 }
